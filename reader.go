@@ -9,7 +9,7 @@ import (
 	"sort"
 )
 
-// CSVReader is a CSV reader that supports iterating and reading CSV rows into structs.
+// CSVReader is a CSV reader that supports iterating and reading CSV lines into structs.
 // The csv reader is read by default in the first line. If the header is not in the first line,
 // you can use the WithReadHeader option to set the line where the header is located.
 type CSVReader struct {
@@ -60,7 +60,22 @@ func (r *CSVReader) SetHeader(columns []string) {
 	}
 }
 
-// Next reads the next CSV row.
+// ReadHeader reads the current line as the CSV header.
+// This method is called automatically when the CSVReader is created, use it only if you want to read the header again.
+func (r *CSVReader) ReadHeader() (err error) {
+	if r.columns, err = r.reader.Read(); err != nil {
+		if err == io.EOF {
+			return nil
+		}
+		return err
+	}
+
+	r.SetHeader(r.columns)
+
+	return nil
+}
+
+// Next reads the next CSV line.
 func (r *CSVReader) Next(err *error) bool {
 	r.columns, *err = r.reader.Read()
 	if *err == io.EOF {
@@ -99,7 +114,7 @@ func (r *CSVReader) CurrentLineIndex() int {
 	return lineIndex
 }
 
-// UnmarshalLine fills the given struct with data from the next CSV row.
+// UnmarshalLine fills the given struct with data from the next CSV line.
 // The struct fields should be annotated with the `csv` tag to map to CSV column names.
 // The struct fields types may be any primitive type or implement encoding.TextUnmarshaler.
 //
@@ -151,7 +166,7 @@ func (r *CSVReader) readHeaderAtLine(line int) error {
 		return err
 	}
 
-	return r.readHeader()
+	return r.ReadHeader()
 }
 
 func (r *CSVReader) skipLines(n int) error {
@@ -161,19 +176,6 @@ func (r *CSVReader) skipLines(n int) error {
 			return err
 		}
 	}
-	return nil
-}
-
-func (r *CSVReader) readHeader() (err error) {
-	if r.columns, err = r.reader.Read(); err != nil {
-		if err == io.EOF {
-			return nil
-		}
-		return err
-	}
-
-	r.SetHeader(r.columns)
-
 	return nil
 }
 

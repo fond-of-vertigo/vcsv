@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"sort"
 )
 
 // CSVReader is a CSV reader that supports iterating and reading CSV rows into structs.
@@ -44,6 +45,9 @@ func (r *CSVReader) Header() []string {
 	for k := range r.columnIndex {
 		keys = append(keys, k)
 	}
+	sort.SliceStable(keys, func(i, j int) bool {
+		return r.columnIndex[keys[i]] < r.columnIndex[keys[j]]
+	})
 	return keys
 }
 

@@ -60,19 +60,10 @@ func (r *CSVReader) SetHeader(columns []string) {
 	}
 }
 
-// ReadHeader reads the current line as the CSV header.
+// ReadHeader reads the current line, that was already read by Next as the CSV header.
 // This method is called automatically when the CSVReader is created, use it only if you want to read the header again.
-func (r *CSVReader) ReadHeader() (err error) {
-	if r.columns, err = r.reader.Read(); err != nil {
-		if err == io.EOF {
-			return nil
-		}
-		return err
-	}
-
+func (r *CSVReader) ReadHeader() {
 	r.SetHeader(r.columns)
-
-	return nil
 }
 
 // Next reads the next CSV line.
@@ -157,23 +148,24 @@ func (r *CSVReader) UnmarshalLine(v interface{}) error {
 	return r.parseFields(rt, rv)
 }
 
-func (r *CSVReader) readHeaderAtLine(line int) error {
+func (r *CSVReader) readHeaderAtLine(line int) (err error) {
 	if r.headerAtLine < 0 {
 		return nil
 	}
 
-	if err := r.skipLines(line); err != nil {
+	if err := r.skipLines(line + 1); err != nil {
 		return err
 	}
 
-	return r.ReadHeader()
+	r.ReadHeader()
+	return nil
 }
 
 func (r *CSVReader) skipLines(n int) error {
+	var err error
 	for i := 0; i < n; i++ {
-		_, err := r.reader.Read()
-		if err != nil {
-			return err
+		if ok := r.Next(&err); !ok {
+			return fmt.Errorf("error skipping lines: %w", err)
 		}
 	}
 	return nil

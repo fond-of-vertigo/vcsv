@@ -2,8 +2,9 @@ package vcsv
 
 import (
 	"bytes"
-	"github.com/shopspring/decimal"
-	"github.com/stretchr/testify/require"
+	"math/big"
+	"reflect"
+	"slices"
 	"testing"
 	"time"
 )
@@ -28,18 +29,25 @@ func (t *AliasTime) UnmarshalText(b []byte) (err error) {
 }
 
 type TestStruct struct {
-	StringField       string           `csv:"field1"`
-	IntField          int              `csv:"field2"`
-	BoolField         bool             `csv:"field3"`
-	DecimalFieldPtr   *decimal.Decimal `csv:"field4"`
-	DecimalField      decimal.Decimal  `csv:"field5"`
-	TimeField         RecordTime       `csv:"field6"`
-	TimeFieldAlias    AliasTime        `csv:"field7"`
+	StringField       string     `csv:"field1"`
+	IntField          int        `csv:"field2"`
+	BoolField         bool       `csv:"field3"`
+	DecimalFieldPtr   *big.Float `csv:"field4"`
+	DecimalField      big.Float  `csv:"field5"`
+	TimeField         RecordTime `csv:"field6"`
+	TimeFieldAlias    AliasTime  `csv:"field7"`
 	NoTagFieldIgnored string
 }
 
-var decPtr = decimal.NewFromFloat(123.456)
-var dec = decimal.NewFromFloat(321.456)
+func mockDecPtr() *big.Float {
+	var decPtr, _, _ = big.ParseFloat("123.456", 10, 64, big.ToNearestEven)
+	return decPtr
+}
+
+func mockDec() big.Float {
+	var dec, _, _ = big.ParseFloat("321.456", 10, 64, big.ToNearestEven)
+	return *dec
+}
 
 func mockTimeDate(t *testing.T) RecordTime {
 	var tf RecordTime
@@ -65,7 +73,7 @@ func TestReadIntoStruct(t *testing.T) {
 		{
 			name:    "Valid Data",
 			csvData: csvRow("hello,42,true,123.456,321.456,2023/12/04 00:00:27 +0100,2023/12/04 00:00:27 +0100"),
-			expect:  TestStruct{StringField: "hello", IntField: 42, BoolField: true, DecimalFieldPtr: &decPtr, DecimalField: dec, TimeField: mockTimeDate(t), TimeFieldAlias: AliasTime(mockTimeDate(t).Time)},
+			expect:  TestStruct{StringField: "hello", IntField: 42, BoolField: true, DecimalFieldPtr: mockDecPtr(), DecimalField: mockDec(), TimeField: mockTimeDate(t), TimeFieldAlias: AliasTime(mockTimeDate(t).Time)},
 		},
 		{
 			name:      "Invalid Int",
@@ -81,13 +89,13 @@ func TestReadIntoStruct(t *testing.T) {
 			name:      "Nilled Struct (*decimal.Decimal)",
 			csvData:   csvRow("hello,42,true,,321.456,2023/12/04 00:00:27 +0100,2023/12/04 00:00:27 +0100"),
 			expectErr: false,
-			expect:    TestStruct{StringField: "hello", IntField: 42, BoolField: true, DecimalFieldPtr: nil, DecimalField: dec, TimeField: mockTimeDate(t), TimeFieldAlias: AliasTime(mockTimeDate(t).Time)},
+			expect:    TestStruct{StringField: "hello", IntField: 42, BoolField: true, DecimalFieldPtr: nil, DecimalField: mockDec(), TimeField: mockTimeDate(t), TimeFieldAlias: AliasTime(mockTimeDate(t).Time)},
 		},
 		{
 			name:      "Empty Struct (decimal.Decimal)",
 			csvData:   csvRow("hello,42,true,123.456,,2023/12/04 00:00:27 +0100,2023/12/04 00:00:27 +0100"),
 			expectErr: false,
-			expect:    TestStruct{StringField: "hello", IntField: 42, BoolField: true, DecimalFieldPtr: &decPtr, DecimalField: decimal.Decimal{}, TimeField: mockTimeDate(t), TimeFieldAlias: AliasTime(mockTimeDate(t).Time)},
+			expect:    TestStruct{StringField: "hello", IntField: 42, BoolField: true, DecimalFieldPtr: mockDecPtr(), DecimalField: big.Float{}, TimeField: mockTimeDate(t), TimeFieldAlias: AliasTime(mockTimeDate(t).Time)},
 		},
 		{
 			name:      "Invalid StructPtr (*decimal.Decimal)",
@@ -102,7 +110,7 @@ func TestReadIntoStruct(t *testing.T) {
 		{
 			name:      "Valid Data with quotes",
 			csvData:   csvRow(`"hello","42","true","123.456","321.456","2023/12/04 00:00:27 +0100","2023/12/04 00:00:27 +0100"`),
-			expect:    TestStruct{StringField: "hello", IntField: 42, BoolField: true, DecimalFieldPtr: &decPtr, DecimalField: dec, TimeField: mockTimeDate(t), TimeFieldAlias: AliasTime(mockTimeDate(t).Time)},
+			expect:    TestStruct{StringField: "hello", IntField: 42, BoolField: true, DecimalFieldPtr: mockDecPtr(), DecimalField: mockDec(), TimeField: mockTimeDate(t), TimeFieldAlias: AliasTime(mockTimeDate(t).Time)},
 			expectErr: false,
 		},
 	}
@@ -111,21 +119,24 @@ func TestReadIntoStruct(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			reader := bytes.NewBufferString(tc.csvData)
 			csvReader, err := New(reader, WithSeparationChar(','))
-			require.NoError(t, err)
+
+			MustNoError(t, err)
 
 			// first line is the header
 			var loopErr error
 			csvReader.Next(&loopErr)
-			require.NoError(t, loopErr)
+			MustNoError(t, loopErr)
 
 			var result TestStruct
 			err = csvReader.UnmarshalLine(&result)
 
 			if tc.expectErr {
-				require.Error(t, err)
+				MustError(t, err)
 			} else {
-				require.NoError(t, err)
-				require.Equal(t, tc.expect, result)
+				MustNoError(t, err)
+				if ok := reflect.DeepEqual(tc.expect, result); !ok {
+					t.Fatalf("Expected %+v but got %+v", tc.expect, result)
+				}
 			}
 		})
 	}
@@ -159,21 +170,23 @@ func TestTimeParsingWithFormat(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			reader := bytes.NewBufferString(tc.csvData)
 			csvReader, err := New(reader, WithSeparationChar(','))
-			require.NoError(t, err)
+			MustNoError(t, err)
 
 			// first line is the header
 			var loopErr error
 			csvReader.Next(&loopErr)
-			require.NoError(t, loopErr)
+			MustNoError(t, loopErr)
 
 			var result data
 			err = csvReader.UnmarshalLine(&result)
 
 			if tc.expectErr {
-				require.Error(t, err)
+				MustError(t, err)
 			} else {
-				require.NoError(t, err)
-				require.Equal(t, tc.expect, result)
+				MustNoError(t, err)
+				if ok := reflect.DeepEqual(tc.expect, result); !ok {
+					t.Fatalf("Expected %+v but got %+v", tc.expect, result)
+				}
 			}
 		})
 	}
@@ -183,10 +196,12 @@ func TestHeaderSettingAndGetting(t *testing.T) {
 	header := []string{"column1", "column2", "column3"}
 	reader := bytes.NewBufferString("data1,data2,data3\ndata4,data5,data6")
 	csvReader, err := New(reader, WithSeparationChar(','), WithHeader(header))
-	require.NoError(t, err)
+	MustNoError(t, err)
 
 	retrievedHeader := csvReader.Header()
-	require.ElementsMatch(t, header, retrievedHeader, "Headers should match the input")
+	if ok := slices.Equal(header, retrievedHeader); !ok {
+		t.Fatalf("Expected %+v but got %+v", header, retrievedHeader)
+	}
 }
 
 func TestReadIntoStructByColumnIndex(t *testing.T) {
@@ -199,13 +214,27 @@ func TestReadIntoStructByColumnIndex(t *testing.T) {
 	csvData := "hello,42,true,2023/12/04 00:00:27 +0100"
 	reader := bytes.NewBufferString(csvData)
 	csvReader, err := New(reader, WithSeparationChar(','))
-	require.NoError(t, err)
+	MustNoError(t, err)
 
 	var result TestStructByIndex
 	// Assuming that the first line is the data, as no headers are set
 	err = csvReader.UnmarshalLine(&result)
-	require.NoError(t, err)
+	MustNoError(t, err)
 
 	expected := TestStructByIndex{StringField: "hello", IntField: 42, BoolField: true, TimeField: mockTimeDate(t).Time}
-	require.Equal(t, expected, result)
+	if ok := reflect.DeepEqual(expected, result); !ok {
+		t.Fatalf("Expected %+v but got %+v", expected, result)
+	}
+}
+
+func MustNoError(t *testing.T, err error) {
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func MustError(t *testing.T, err error) {
+	if err == nil {
+		t.Fatal("Expected error but got nil")
+	}
 }

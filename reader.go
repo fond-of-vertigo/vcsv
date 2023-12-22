@@ -1,6 +1,7 @@
 package vcsv
 
 import (
+	"bytes"
 	"encoding/csv"
 	"errors"
 	"fmt"
@@ -24,6 +25,12 @@ func New(r io.Reader, options ...Option) (*CSVReader, error) {
 	if r == nil {
 		return nil, errors.New("reader must not be nil")
 	}
+
+	r, err := skipBOM(r)
+	if err != nil {
+		return nil, fmt.Errorf("unable to skip BOM: %w", err)
+	}
+
 	c := CSVReader{}
 	c.reader = csv.NewReader(r)
 	c.reader.FieldsPerRecord = -1
@@ -37,6 +44,34 @@ func New(r io.Reader, options ...Option) (*CSVReader, error) {
 		return nil, err
 	}
 	return &c, nil
+}
+
+func skipBOM(r io.Reader) (io.Reader, error) {
+	var (
+		utf8BOM    = []byte{0xEF, 0xBB, 0xBF}
+		utf16LEBOM = []byte{0xFF, 0xFE}
+		utf16BEBOM = []byte{0xFE, 0xFF}
+		utf32LEBOM = []byte{0xFF, 0xFE, 0x00, 0x00}
+		utf32BEBOM = []byte{0x00, 0x00, 0xFE, 0xFF}
+	)
+
+	buf := make([]byte, 4)
+
+	n, err := io.ReadFull(r, buf)
+	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {
+		return nil, err
+	}
+
+	switch {
+	case bytes.HasPrefix(buf[:n], utf32LEBOM), bytes.HasPrefix(buf[:n], utf32BEBOM):
+		return io.MultiReader(bytes.NewReader(buf[len(utf32LEBOM):n]), r), nil
+	case bytes.HasPrefix(buf[:n], utf16LEBOM), bytes.HasPrefix(buf[:n], utf16BEBOM):
+		return io.MultiReader(bytes.NewReader(buf[len(utf16LEBOM):n]), r), nil
+	case bytes.HasPrefix(buf[:n], utf8BOM):
+		return io.MultiReader(bytes.NewReader(buf[len(utf8BOM):n]), r), nil
+	}
+
+	return io.MultiReader(bytes.NewReader(buf[:n]), r), nil
 }
 
 // Header returns the CSV header columns.

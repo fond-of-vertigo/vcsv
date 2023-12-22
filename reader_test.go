@@ -5,6 +5,7 @@ import (
 	"math/big"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -224,6 +225,47 @@ func TestReadIntoStructByColumnIndex(t *testing.T) {
 	expected := TestStructByIndex{StringField: "hello", IntField: 42, BoolField: true, TimeField: mockTimeDate(t).Time}
 	if ok := reflect.DeepEqual(expected, result); !ok {
 		t.Fatalf("Expected %+v but got %+v", expected, result)
+	}
+}
+
+func Test_skipBOM(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"No BOM", "Hello, World!", "Hello, World!"},
+		{"UTF-8 BOM", "\xEF\xBB\xBFHello, World!", "Hello, World!"},
+		{"UTF-16LE BOM", "\xFF\xFEHello, World!", "Hello, World!"},
+		{"UTF-16BE BOM", "\xFE\xFFHello, World!", "Hello, World!"},
+		{"UTF-32LE BOM", "\xFF\xFE\x00\x00Hello, World!", "Hello, World!"},
+		{"UTF-32BE BOM", "\x00\x00\xFE\xFFHello, World!", "Hello, World!"},
+		{"Empty String", "", ""},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Convert the input string to a Reader
+			r := strings.NewReader(tc.input)
+
+			// Execute the skipBOM function and capture the new reader
+			newReader, err := skipBOM(r)
+			if err != nil {
+				t.Fatalf("skipBOM() returned an error: %v", err)
+			}
+
+			// Read the remaining data from the new reader
+			buf := new(bytes.Buffer)
+			_, err = buf.ReadFrom(newReader)
+			if err != nil {
+				t.Fatalf("Reading from new reader returned an error: %v", err)
+			}
+
+			// Check if the remaining data is as expected
+			if got := buf.String(); got != tc.expected {
+				t.Errorf("Expected remaining data to be %q, got %q", tc.expected, got)
+			}
+		})
 	}
 }
 
